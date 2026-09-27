@@ -11,6 +11,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.widget.TextView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -21,6 +23,7 @@ import java.util.Locale;
 public class WhatsAppAccessibilityService extends AccessibilityService {
     private static final String WA = "com.whatsapp";
     private static final String WAB = "com.whatsapp.w4b";
+
     private WindowManager wm;
     private WindowManager.LayoutParams bubbleParams;
     private TextView bubble;
@@ -31,7 +34,21 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
     private float touchStartX, touchStartY;
     private int windowStartX, windowStartY;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable pendingExit = this::finishSession;
+
+    // Accessibility events can arrive out of order while an app is closing.
+    // We therefore never count an open directly from event.getPackageName().
+    // Instead we wait briefly and verify the package of the actually active window.
+    private final Runnable reconcileForeground = this::reconcileForegroundNow;
+    private final Runnable pendingEnter = () -> {
+        String pkg = foregroundPackage();
+        if (!inWhatsApp && isWhatsApp(pkg)) beginSession();
+    };
+    private final Runnable pendingExit = () -> {
+        String pkg = foregroundPackage();
+        if (inWhatsApp && pkg != null && !isWhatsApp(pkg) && !isTransientPackage(pkg)) {
+            finishSession();
+        }
+    };
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -56,33 +73,75 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        CharSequence p = event.getPackageName();
-        if (p == null) return;
-        String pkg = p.toString();
-        boolean nowWA = WA.equals(pkg) || WAB.equals(pkg);
+        // Window events are noisy and sometimes arrive after the app already
+        // lost focus. Coalesce the burst, then inspect the real active window.
+        handler.removeCallbacks(reconcileForeground);
+        handler.postDelayed(reconcileForeground, 180);
+    }
 
-        if (nowWA) {
+    private void reconcileForegroundNow() {
+        String pkg = foregroundPackage();
+        if (pkg == null) return;
+
+        if (isWhatsApp(pkg)) {
             handler.removeCallbacks(pendingExit);
             if (!inWhatsApp) {
-                loadToday();
-                inWhatsApp = true;
-                sessionStart = System.currentTimeMillis();
-                recordOpen(sessionStart);
-                showBubble();
-                handler.removeCallbacks(ticker);
-                handler.post(ticker);
+                handler.removeCallbacks(pendingEnter);
+                handler.postDelayed(pendingEnter, 320);
             }
-        } else if (inWhatsApp && !getPackageName().equals(pkg)
-                && !"com.android.systemui".equals(pkg)
-                && !"com.google.android.inputmethod.latin".equals(pkg)
-                && !"com.samsung.android.honeyboard".equals(pkg)) {
-            // Android can emit transient non-WhatsApp accessibility events while
-            // WhatsApp is still closing/changing windows. Delay the exit slightly;
-            // a real WhatsApp event cancels it, preventing false re-entry counts
-            // and overlay flicker.
-            handler.removeCallbacks(pendingExit);
-            handler.postDelayed(pendingExit, 800);
+        } else if (!isTransientPackage(pkg)) {
+            handler.removeCallbacks(pendingEnter);
+            if (inWhatsApp) {
+                handler.removeCallbacks(pendingExit);
+                handler.postDelayed(pendingExit, 320);
+            }
         }
+    }
+
+    private String foregroundPackage() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) {
+            CharSequence p = root.getPackageName();
+            if (p != null) return p.toString();
+        }
+
+        // Fallback for devices where the active root is briefly unavailable.
+        try {
+            List<AccessibilityWindowInfo> windows = getWindows();
+            if (windows != null) {
+                for (AccessibilityWindowInfo window : windows) {
+                    if (!window.isActive() && !window.isFocused()) continue;
+                    AccessibilityNodeInfo r = window.getRoot();
+                    if (r == null) continue;
+                    CharSequence p = r.getPackageName();
+                    if (p != null) return p.toString();
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+
+    private boolean isWhatsApp(String pkg) {
+        return WA.equals(pkg) || WAB.equals(pkg);
+    }
+
+    private boolean isTransientPackage(String pkg) {
+        return getPackageName().equals(pkg)
+            || "com.android.systemui".equals(pkg)
+            || "com.google.android.inputmethod.latin".equals(pkg)
+            || "com.samsung.android.honeyboard".equals(pkg);
+    }
+
+    private void beginSession() {
+        if (inWhatsApp) return;
+        loadToday();
+        inWhatsApp = true;
+        sessionStart = System.currentTimeMillis();
+        recordOpen(sessionStart);
+        showBubble();
+        handler.removeCallbacks(ticker);
+        handler.post(ticker);
     }
 
     private String todayKey() {
@@ -221,9 +280,17 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
         getSharedPreferences("usage", MODE_PRIVATE).edit().putString("opens", b.toString()).apply();
     }
 
-    @Override public void onInterrupt() { finishSession(); }
+    @Override public void onInterrupt() {
+        handler.removeCallbacks(reconcileForeground);
+        handler.removeCallbacks(pendingEnter);
+        handler.removeCallbacks(pendingExit);
+        finishSession();
+    }
+
     @Override public void onDestroy() {
         handler.removeCallbacks(ticker);
+        handler.removeCallbacks(reconcileForeground);
+        handler.removeCallbacks(pendingEnter);
         handler.removeCallbacks(pendingExit);
         finishSession();
         hideBubble();
