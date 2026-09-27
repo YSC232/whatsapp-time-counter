@@ -42,8 +42,8 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
                 long minutes = (totalSec % 3600) / 60;
                 long seconds = totalSec % 60;
                 bubble.setText(String.format(Locale.getDefault(),
-                    "  %02d:%02d:%02d  •  24h: %d פתיחות  ",
-                    hours, minutes, seconds, count24h()));
+                    "  %02d:%02d:%02d  •  היום: %d פתיחות  ",
+                    hours, minutes, seconds, countTodayOpens()));
                 handler.postDelayed(this, 1000);
             }
         }
@@ -179,14 +179,17 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
         saveTimes(times);
     }
 
-    private int count24h() {
-        List<Long> times = loadTimes();
-        saveTimes(times);
-        return times.size();
+    private int countTodayOpens() {
+        return loadTimes().size();
     }
 
     private List<Long> loadTimes() {
-        long cutoff = System.currentTimeMillis() - 24L*60*60*1000;
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        cal.set(java.util.Calendar.MINUTE, 0);
+        cal.set(java.util.Calendar.SECOND, 0);
+        cal.set(java.util.Calendar.MILLISECOND, 0);
+        long cutoff = cal.getTimeInMillis();
         String raw = getSharedPreferences("usage", MODE_PRIVATE).getString("opens", "");
         List<Long> out = new ArrayList<>();
         if (!raw.isEmpty()) {
