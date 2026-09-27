@@ -31,6 +31,7 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
     private float touchStartX, touchStartY;
     private int windowStartX, windowStartY;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable pendingExit = this::finishSession;
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -42,7 +43,7 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
                 long minutes = (totalSec % 3600) / 60;
                 long seconds = totalSec % 60;
                 bubble.setText(String.format(Locale.getDefault(),
-                    "  %02d:%02d:%02d  •  היום: %d פתיחות  ",
+                    "  %02d:%02d:%02d  |  %d  ",
                     hours, minutes, seconds, countTodayOpens()));
                 handler.postDelayed(this, 1000);
             }
@@ -60,19 +61,27 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
         String pkg = p.toString();
         boolean nowWA = WA.equals(pkg) || WAB.equals(pkg);
 
-        if (nowWA && !inWhatsApp) {
-            loadToday();
-            inWhatsApp = true;
-            sessionStart = System.currentTimeMillis();
-            recordOpen(sessionStart);
-            showBubble();
-            handler.removeCallbacks(ticker);
-            handler.post(ticker);
-        } else if (!nowWA && inWhatsApp && !getPackageName().equals(pkg)
+        if (nowWA) {
+            handler.removeCallbacks(pendingExit);
+            if (!inWhatsApp) {
+                loadToday();
+                inWhatsApp = true;
+                sessionStart = System.currentTimeMillis();
+                recordOpen(sessionStart);
+                showBubble();
+                handler.removeCallbacks(ticker);
+                handler.post(ticker);
+            }
+        } else if (inWhatsApp && !getPackageName().equals(pkg)
                 && !"com.android.systemui".equals(pkg)
                 && !"com.google.android.inputmethod.latin".equals(pkg)
                 && !"com.samsung.android.honeyboard".equals(pkg)) {
-            finishSession();
+            // Android can emit transient non-WhatsApp accessibility events while
+            // WhatsApp is still closing/changing windows. Delay the exit slightly;
+            // a real WhatsApp event cancels it, preventing false re-entry counts
+            // and overlay flicker.
+            handler.removeCallbacks(pendingExit);
+            handler.postDelayed(pendingExit, 800);
         }
     }
 
@@ -215,6 +224,7 @@ public class WhatsAppAccessibilityService extends AccessibilityService {
     @Override public void onInterrupt() { finishSession(); }
     @Override public void onDestroy() {
         handler.removeCallbacks(ticker);
+        handler.removeCallbacks(pendingExit);
         finishSession();
         hideBubble();
         super.onDestroy();
