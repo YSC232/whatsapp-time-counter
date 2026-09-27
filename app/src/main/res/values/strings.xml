@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">WhatsApp Time Counter</string>
+    <string name="service_description">Shows your current WhatsApp session time and how many times WhatsApp was opened in the last 24 hours.</string>
+</resources>
