@@ -17,10 +17,10 @@ The counter is displayed only while WhatsApp is in the foreground.
 
 ## Download
 
-The current version is **v1.3**.
+The current version is **v1.4**.
 
-**Download v1.3:**  
-https://github.com/YSC232/whatsapp-time-counter/actions/runs/36349342349/artifacts/10941652505
+**Download v1.4:**  
+https://github.com/YSC232/whatsapp-time-counter/actions/runs/36384856044/artifacts/10954630170
 
 GitHub Actions downloads the build as a ZIP file. Extract it and install `app-debug.apk`.
 
@@ -95,8 +95,9 @@ A small bubble will appear in this form:
 - Right: number of WhatsApp opens today.
 - Drag the bubble to move it.
 - Its position is remembered.
-- Leaving WhatsApp hides the bubble.
-- Returning to WhatsApp continues today's accumulated time.
+- Leaving WhatsApp hides the bubble and stops the timer.
+- Turning the screen off or locking the phone also stops the timer immediately.
+- Returning to WhatsApp while the screen is on starts a new session and continues today's accumulated time.
 - Both daily counters reset at local midnight.
 
 No separate "display over other apps" permission is required because the bubble uses an accessibility overlay.
