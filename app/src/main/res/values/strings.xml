@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">WhatsApp Time Counter</string>
-    <string name="service_description">Shows today&apos;s WhatsApp usage time and number of opens in a movable overlay.</string>
+    <string name="service_description">Shows WhatsApp usage time and number of opens for the current day in a movable overlay.</string>
 </resources>
